@@ -45,7 +45,9 @@ Redwood.controller("SubjectCtrl", ["$rootScope", "$scope", "RedwoodSubject", 'Sy
         $scope.showHeat = false;
 
         $scope.showoppheat = rs.config.show_opp_heat ? true : false;
-
+        if ($scope.showoppheat) $scope.debugMode = true;
+        $scope.heatNums = true;
+        
         if ($scope.gameType == "matrix") $scope.showMatrix = true;
         else if ($scope.gameType == "heatmap") {
             $scope.showHeat = true;
@@ -104,10 +106,11 @@ Redwood.controller("SubjectCtrl", ["$rootScope", "$scope", "RedwoodSubject", 'Sy
                 var opponentReward = $scope.matrix[$scope.action - 1][$scope.partnerAction - 1][1];
 
             } else if ($scope.gameType == "heatmap") {
+                console.debug("my location: " + $scope.myHeatAction + " other loc: " + $scope.partnerHeatAction);
+                var reward = $scope.payoff($scope.myHeatAction, $scope.partnerHeatAction);
 
-                var reward = payoff($scope.myHeatAction, $scope.partnerHeatAction);
-
-                var opponentReward = oppPayoff($scope.myHeatAction, $scope.partnerHeatAction);
+                console.debug("payoff: " + reward);
+                var opponentReward = $scope.oppPayoff($scope.myHeatAction, $scope.partnerHeatAction);
 
             }
 
@@ -128,15 +131,20 @@ Redwood.controller("SubjectCtrl", ["$rootScope", "$scope", "RedwoodSubject", 'Sy
 
     };
 
-    var payoff = function(x, y) {
+    $scope.payoff = function(x, y) {
+
         var first   =   $scope.matrix[0][0][0];
         var second  =   $scope.matrix[0][1][0];
         var third   =   $scope.matrix[1][0][0];
         var fourth  =   $scope.matrix[1][1][0];
 
-        return (first*(x*y) + second*x*(1-y) + third*(1-x)*y + fourth*(1-x)*(1-y));
+        //return (first*(1-x)*(1-y) + second*(1-x)*(y) + third*(x)*(1-y) + fourth*(x)*(y));
+        return (first*(x)*(y) + second*(x)*(1-y) + third*(1-x)*(y) + fourth*(1-x)*(1-y));
+      
     }
-    var oppPayoff = function(x, y) {
+
+    $scope.oppPayoff = function(x, y) {
+      
         var first   =   $scope.matrix[0][0][1];
         var second  =   $scope.matrix[0][1][1];
         var third   =   $scope.matrix[1][0][1];
@@ -214,6 +222,29 @@ Redwood.controller("SubjectCtrl", ["$rootScope", "$scope", "RedwoodSubject", 'Sy
         return transposed;
     };
 
+
+    /* finds the min of our matrix */
+    $scope.findMin = function(array) {
+        var min = $scope.matrix[0][1][0];
+        
+        if ($scope.matrix[1][1][0] < min) min = $scope.matrix[1][1][0];
+        if ($scope.matrix[0][0][0] < min) min = $scope.matrix[0][0][0];
+        if ($scope.matrix[1][0][0] < min) min = $scope.matrix[1][0][0];
+
+        
+        return min;
+    }
+
+    $scope.findMax = function(array) {
+        var max = $scope.matrix[0][1][0];
+        
+        if ($scope.matrix[1][1][0] > max) max = $scope.matrix[1][1][0];
+        if ($scope.matrix[0][0][0] > max) max = $scope.matrix[0][0][0];
+        if ($scope.matrix[1][0][0] > max) max = $scope.matrix[1][0][0];
+
+        
+        return max;
+    }
 }]);
 
 Redwood.directive('plot', ['RedwoodSubject', function(rs) {
@@ -266,7 +297,8 @@ Redwood.directive('plot', ['RedwoodSubject', function(rs) {
                     },
                     yaxis: {
                         tickLength: 0,
-                        min: 0,
+                        /* This matrix value is the lowest possible payoff */
+                        min: $scope.findMin($scope.matrix),
                         max: $scope.yMax
                     },
                     series: {
@@ -356,7 +388,15 @@ Redwood.directive('heat', ['RedwoodSubject', function(rs) {
                     values = [];
                     for (var y = 0; y < height; y++) {
                         for (var x = 0; x < width; x++) {
-                            var value = heat(200 / width, y / height);
+                            var xpt = 200 / width;
+                            var ypt = y / height;
+                            
+                            if (rs.user_id % 2 == 1) {
+                                var value = $scope.payoff(xpt, ypt)
+                            } else {
+                                var value = $scope.payoff(1-xpt, ypt);
+                            }
+
                             if (range[0] == undefined || value < range[0]) {
                                 range[0] = value;
                             }
@@ -377,7 +417,31 @@ Redwood.directive('heat', ['RedwoodSubject', function(rs) {
                         }
                     }
                 }
+
+
                 ctx.putImageData(heatmap, 0, 0);
+
+                /* Draws a horizontal line on the legend indicating payoff color */
+                var x = ($scope.partnerScalar * width); 
+                var y = ((1-$scope.myScalar) * height);
+                var payoff = $scope.payoff($scope.myScalar, $scope.partnerScalar);
+
+                console.debug("#legend payoff for legend: " + payoff);
+                
+                var totalPayoffDiff = $scope.yMax - $scope.findMin($scope.matrix);
+
+                var portion = (payoff - $scope.findMin($scope.matrix)) / totalPayoffDiff;
+                console.debug("#legend portion for legend: " + portion);
+
+                ctx.putImageData(heatmap, 0, 0);
+
+
+
+                //draw a circle
+                ctx.beginPath();
+                ctx.rect(0, height-(portion*height), width, 1)
+                ctx.closePath();
+                ctx.fill();
             }
 
             function drawOppHeat() {
@@ -393,7 +457,15 @@ Redwood.directive('heat', ['RedwoodSubject', function(rs) {
                     values = [];
                     for (var y = 0; y < height; y++) {
                         for (var x = 0; x < width; x++) {
-                            var value = oppHeat(x / width, y / height);
+                            var xpt = x / width;
+                            var ypt = y / height;
+
+                            if (rs.user_id % 2 == 1) {
+                                var value = $scope.oppPayoff(ypt, -xpt)
+                            } else {
+
+                                var value = $scope.oppPayoff(ypt, xpt);
+                            }
                             if (range[0] == undefined || value < range[0]) {
                                 range[0] = value;
                             }
@@ -418,12 +490,10 @@ Redwood.directive('heat', ['RedwoodSubject', function(rs) {
 
                 var x = ($scope.partnerScalar * width); 
                 var y = ((1-$scope.myScalar) * height);
-                console.debug("filling in point at: " + x + "," + y + "." + "with myScalar = " + $scope.myScalar + " and partnerScalar= " + $scope.partnerScalar);
+                
                 ctx.putImageData(heatmap, 0, 0);
 
 
-
-                //draw a circle
                 ctx.beginPath();
                 ctx.rect(x-5, y-5, 10, 10)
                 ctx.closePath();
@@ -484,10 +554,12 @@ Redwood.directive('heat', ['RedwoodSubject', function(rs) {
 
             $scope.$watch("partnerHeatAction", function() {
                 drawCanvas();
+                initLegend();
                 drawOppHeat();
             });
             $scope.$watch("myHeatAction", function() {
                 drawCanvas();
+                initLegend();
                 drawOppHeat();
             });
 
@@ -498,9 +570,9 @@ Redwood.directive('heat', ['RedwoodSubject', function(rs) {
                 canvas.width = canvas.width;
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 
-                ctx.strokeStyle = "#333333";    
+                ctx.strokeStyle = "#AAAAAA";    
                 //draw labels and ticks
-                ctx.lineWidth = 2;
+                ctx.lineWidth = 1;
                 
 
                 // Partner draws horizontal line
@@ -509,7 +581,7 @@ Redwood.directive('heat', ['RedwoodSubject', function(rs) {
                 
                 ctx.stroke();
                 ctx.closePath();
-
+                ctx.lineWidth = 3;
                 // Player draws vertical line
                 ctx.moveTo(canvas.width * $scope.myScalar, 0);
                 ctx.lineTo(canvas.width * $scope.myScalar, canvas.height);
@@ -517,30 +589,13 @@ Redwood.directive('heat', ['RedwoodSubject', function(rs) {
                 ctx.closePath();                
             }
 
-            function heat(x, y) {
-                var first   =   $scope.matrix[0][0][0];
-                var second  =   $scope.matrix[0][1][0];
-                var third   =   $scope.matrix[1][0][0];
-                var fourth  =   $scope.matrix[1][1][0];
-
-                return (first*(x*y) + second*x*(1-y) + third*(1-x)*y + fourth*(1-x)*(1-y));
-            }
-
-            function oppHeat(x, y) {
-                var first   =   $scope.matrix[0][0][1];
-                var second  =   $scope.matrix[1][0][1];
-                var third   =   $scope.matrix[0][1][1];
-                var fourth  =   $scope.matrix[1][1][1];
-
-                return (first*(x*y) + second*x*(1-y) + third*(1-x)*y + fourth*(1-x)*(1-y));
-            }
 
             function heat_color(value, range) {
                 if (value == NaN || value == Infinity || value == -Infinity) {
                     value = 0;
                 }
                 value = (value - range[0]) / (range[1] - range[0]);
-                return [255 * value, 0, 255 * (1 - value), 255 * (1 - value/2)];
+                return [255 * value, 0, 255 * (1 - value), 255 * (1 - value/4)];
             }
 
             function redraw() {
@@ -556,7 +611,14 @@ Redwood.directive('heat', ['RedwoodSubject', function(rs) {
                     values = [];
                     for (var y = 0; y < height; y++) {
                         for (var x = 0; x < width; x++) {
-                            var value = heat(x / width, y / height);
+                            /* these are normalized between 0 and 1 so we can get all combinations */
+                            var xpt = x / width;
+                            var ypt = y / height;
+                            if (rs.user_id % 2 == 1) {
+                                var value = $scope.payoff(xpt, ypt)
+                            } else {
+                                var value = $scope.payoff(1-xpt, ypt);
+                            }
                             if (range[0] == undefined || value < range[0]) {
                                 range[0] = value;
                             }
